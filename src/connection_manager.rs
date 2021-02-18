@@ -19,10 +19,10 @@ use qp2p::{self, Config as QuicP2pConfig, Endpoint, IncomingMessages, QuicP2p};
 use sn_data_types::{HandshakeRequest, Keypair, ReplicaPublicKeySet, TransferValidated};
 use sn_messaging::{
     client::{Event, Message, QueryResponse},
-    network_info::{GetSectionResponse, Message as NetworkInfoMsg, NetworkInfo, Error as InfrastructureUpdate},
-    MessageId,
-    WireMsg,
-    MessageType
+    network_info::{
+        Error as InfrastructureUpdate, GetSectionResponse, Message as NetworkInfoMsg, NetworkInfo,
+    },
+    MessageId, MessageType, WireMsg,
 };
 
 use futures::StreamExt;
@@ -35,7 +35,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    sync::mpsc::{channel, Sender, UnboundedSender, Receiver},
+    sync::mpsc::{channel, Receiver, Sender, UnboundedSender},
     task::JoinHandle,
     time::timeout,
 };
@@ -64,7 +64,6 @@ pub struct ConnectionManager {
     pending_transfer_validations: Arc<Mutex<HashMap<MessageId, TransferValidationSender>>>,
     pending_query_responses: Arc<Mutex<HashMap<(SocketAddr, MessageId), QueryResponseSender>>>,
     notification_sender: Arc<Mutex<UnboundedSender<Error>>>,
-    
     // receive the pk set when calling bootstrap func
     keyset_sender: Arc<Mutex<Sender<Result<ReplicaPublicKeySet, Error>>>>,
     keyset_receiver: Arc<Mutex<Receiver<Result<ReplicaPublicKeySet, Error>>>>,
@@ -77,7 +76,6 @@ impl ConnectionManager {
         keypair: Keypair,
         notification_sender: UnboundedSender<Error>,
     ) -> Result<Self, Error> {
-
         let qp2p = QuicP2p::with_config(Some(config), Default::default(), false)?;
         let (sender, receiver) = channel::<Result<ReplicaPublicKeySet, Error>>(1);
 
@@ -90,22 +88,23 @@ impl ConnectionManager {
             pending_query_responses: Arc::new(Mutex::new(HashMap::default())),
             notification_sender: Arc::new(Mutex::new(notification_sender)),
             // config_file_path,
-            keyset_sender:Arc::new(Mutex::new(sender)),
-            keyset_receiver:Arc::new(Mutex::new(receiver)),
+            keyset_sender: Arc::new(Mutex::new(sender)),
+            keyset_receiver: Arc::new(Mutex::new(receiver)),
         })
     }
 
     /// Loop bootstrap attempts up to three times
-    pub async fn retry_bootstrap(self, bootstrap_config: &Vec<SocketAddr> ) -> Result<(Self, ReplicaPublicKeySet), Error> {
+    pub async fn retry_bootstrap(
+        self,
+        bootstrap_config: &Vec<SocketAddr>,
+    ) -> Result<(Self, ReplicaPublicKeySet), Error> {
         let mut attempts: u32 = 0;
 
         loop {
             trace!("bootstrap attempt, {:?}", attempts);
             let res = self.clone().bootstrap(bootstrap_config).await;
             match res {
-                Ok(pk_set) => {
-                    return Ok((self, pk_set))
-                },
+                Ok(pk_set) => return Ok((self, pk_set)),
                 Err(err) => {
                     attempts += 1;
                     if attempts < 3 {
@@ -116,7 +115,6 @@ impl ConnectionManager {
                 }
             }
         }
-
     }
 
     /// Bootstrap to the network maintaining connections to several nodes.
@@ -133,8 +131,7 @@ impl ConnectionManager {
         // Bootstrap and send a handshake request to receive
         // the list of Elders we can then connect to
         let incoming_messages = self.get_section(bootstrap_config).await?;
-        
-        
+
         let mut receiver = self.keyset_receiver.lock().await;
 
         let handle = self.listen_to_incoming_messages(incoming_messages).await;
@@ -155,11 +152,18 @@ impl ConnectionManager {
         let msg_id = msg.id();
         debug!("--->>>> in send_cmd");
 
-        let endpoint = self.endpoint.lock().await.clone().ok_or(Error::NotBootstrapped)?;
+        let endpoint = self
+            .endpoint
+            .lock()
+            .await
+            .clone()
+            .ok_or(Error::NotBootstrapped)?;
         let src_addr = endpoint.socket_addr();
-        info!(
+        trace!(
             "Sending (from {}) command message {:?} w/ id: {:?}",
-            src_addr, msg, msg_id
+            src_addr,
+            msg,
+            msg_id
         );
         let msg_bytes = msg.serialize()?;
 
@@ -242,7 +246,12 @@ impl ConnectionManager {
             let msg_bytes_clone = msg_bytes.clone();
             let socket = *socket;
 
-            let endpoint = self.endpoint.lock().await.clone().ok_or(Error::NotBootstrapped)?;
+            let endpoint = self
+                .endpoint
+                .lock()
+                .await
+                .clone()
+                .ok_or(Error::NotBootstrapped)?;
 
             let task_handle = tokio::spawn(async move {
                 endpoint.connect_to(&socket).await?;
@@ -279,7 +288,12 @@ impl ConnectionManager {
 
             let pending_query_responses = self.pending_query_responses.clone();
 
-            let mut endpoint = self.endpoint.lock().await.clone().ok_or(Error::NotBootstrapped)?;
+            let mut endpoint = self
+                .endpoint
+                .lock()
+                .await
+                .clone()
+                .ok_or(Error::NotBootstrapped)?;
             endpoint.connect_to(&socket).await?;
 
             let task_handle = tokio::spawn(async move {
@@ -493,7 +507,10 @@ impl ConnectionManager {
 
     // Bootstrap to the network to obtaining the list of
     // nodes we should establish connections with
-    async fn get_section(&self, bootstrap_nodes_override: &Vec<SocketAddr>) -> Result<IncomingMessages, Error> {
+    async fn get_section(
+        &self,
+        bootstrap_nodes_override: &Vec<SocketAddr>,
+    ) -> Result<IncomingMessages, Error> {
         info!("Sending NetworkInfo::GetSectionRequest");
 
         trace!("override nodes: {:?}", bootstrap_nodes_override);
@@ -505,19 +522,17 @@ impl ConnectionManager {
             _disconnections,
             bootstrapped_peer,
         ) = self.qp2p.bootstrap(bootstrap_nodes_override).await?;
-        
-        
-        
+
         trace!("Sending handshake request to bootstrapped node...");
         let public_key = self.keypair.public_key();
         let xorname = XorName::from(public_key);
         let msg = NetworkInfoMsg::GetSectionQuery(xorname).serialize()?;
-        
+
         // TODO: we shouldnt need to grab this again
         the_endpoint.send_message(msg, &bootstrapped_peer).await?;
         let mut endpoint = self.endpoint.lock().await;
         *endpoint = Some(the_endpoint);
-        
+
         trace!("get section done");
         Ok(incoming_messages)
     }
@@ -535,7 +550,12 @@ impl ConnectionManager {
         // We spawn a task per each node to connect to
         let mut tasks = Vec::default();
 
-        let endpoint = self.endpoint.lock().await.clone().ok_or(Error::NotBootstrapped)?;
+        let endpoint = self
+            .endpoint
+            .lock()
+            .await
+            .clone()
+            .ok_or(Error::NotBootstrapped)?;
         for peer_addr in elders_addrs {
             let keypair = self.keypair.clone();
 
@@ -628,7 +648,7 @@ impl ConnectionManager {
         mut incoming_messages: IncomingMessages,
     ) -> JoinHandle<Result<(), Error>> {
         debug!("Adding IncomingMessages listener");
-        
+
         let cm = self.clone();
         // Spawn a thread for listening
         tokio::spawn(async move {
@@ -636,7 +656,7 @@ impl ConnectionManager {
 
             while let Some((src, message)) = incoming_messages.next().await {
                 debug!("MESSAGE {:?}", message);
-                 match WireMsg::deserialize(message) {
+                match WireMsg::deserialize(message) {
                     Ok(message_type) => {
                         match message_type {
                             MessageType::NetworkInfo(msg) => {
@@ -644,7 +664,7 @@ impl ConnectionManager {
                                 match cm.handle_infrastructure_msg(msg).await {
                                     Ok(_) => {
                                         //do nothing
-                                    },
+                                    }
                                     Err(error) => {
                                         error!("Error handling infra msg {:?}", error);
                                     }
@@ -652,15 +672,14 @@ impl ConnectionManager {
                             }
                             MessageType::ClientMessage(envelope) => {
                                 debug!("SHOULD HANDLE CLIENT");
-        
+
                                 cm.handle_client_msg(envelope, src).await;
                             }
                             msg_type => {
                                 info!("Unexpected message type received: {:?}", msg_type);
                             }
                         }
-
-                    },
+                    }
                     Err(error) => {
                         error!("Error deserialzing message {:?}", error);
                         // do nothing else
@@ -668,7 +687,6 @@ impl ConnectionManager {
                 };
 
                 trace!("Message received at listener from {:?}", &src);
-
             }
             info!("IncomingMessages listener is closing now");
             Ok::<(), Error>(())
@@ -733,10 +751,7 @@ impl ConnectionManager {
     }
 
     /// update the client's elder connection information and trigger connections to those elders
-    async fn update_infrastructure_information(
-        &self,
-        info: NetworkInfo,
-    ) -> Result<(), Error> {
+    async fn update_infrastructure_information(&self, info: NetworkInfo) -> Result<(), Error> {
         let elders = info.elders;
         let pk_set = info.pk_set;
 
@@ -748,12 +763,12 @@ impl ConnectionManager {
             .collect();
 
         // if we're waiting for inital PK set on bootstrap
-        
+
         let mut sender = self.keyset_sender.lock().await;
-            sender
-                .send(Ok(pk_set))
-                .await
-                .map_err(|_| Error::CouldNotSaveReplicaPkSet)?;
+        sender
+            .send(Ok(pk_set))
+            .await
+            .map_err(|_| Error::CouldNotSaveReplicaPkSet)?;
 
         // clear existing elder lsit.
         let mut elders = self.elders.lock().await;

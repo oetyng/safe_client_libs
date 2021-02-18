@@ -43,6 +43,7 @@ use sn_messaging::{
     client::{Cmd, DataCmd, Message, Query, QueryResponse},
     MessageId,
 };
+use std::iter::FromIterator;
 use std::{
     path::Path,
     str::FromStr,
@@ -51,7 +52,6 @@ use std::{
 use threshold_crypto::PublicKeySet;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use xor_name::XorName;
-use std::iter::FromIterator;
 /// Elder size
 pub const ELDER_SIZE: usize = 5;
 
@@ -294,15 +294,14 @@ pub async fn attempt_bootstrap(
     notification_sender: UnboundedSender<Error>,
 ) -> Result<(ConnectionManager, ReplicaPublicKeySet), Error> {
     let qp2p_config = Config::new(config_file_path, bootstrap_config.clone()).qp2p;
-    
+
     // let mut addresses: &Vec<SocketAddr> = None;
     let mut address_vec: Vec<SocketAddr> = vec![];
 
     if let Some(bootstrap) = bootstrap_config {
-       for a in bootstrap {
+        for a in bootstrap {
             address_vec.push(a)
-       }
-
+        }
     }
 
     let connection_manager = ConnectionManager::new(
@@ -316,7 +315,7 @@ pub async fn attempt_bootstrap(
 
     let (connection_manager, pk_set) = connection_manager.retry_bootstrap(&address_vec).await?;
 
-   Ok((connection_manager, pk_set))
+    Ok((connection_manager, pk_set))
 }
 
 #[cfg(test)]
