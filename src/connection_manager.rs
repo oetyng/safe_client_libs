@@ -6,7 +6,6 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::config_handler::Config;
 use crate::Error;
 use bincode::serialize;
 use futures::{
@@ -30,7 +29,6 @@ use std::{
     borrow::Borrow,
     collections::{HashMap, HashSet},
     net::SocketAddr,
-    path::Path,
     sync::Arc,
     time::Duration,
 };
@@ -96,7 +94,7 @@ impl ConnectionManager {
     /// Loop bootstrap attempts up to three times
     pub async fn retry_bootstrap(
         self,
-        bootstrap_config: &Vec<SocketAddr>,
+        bootstrap_config: &[SocketAddr],
     ) -> Result<(Self, ReplicaPublicKeySet), Error> {
         let mut attempts: u32 = 0;
 
@@ -121,7 +119,7 @@ impl ConnectionManager {
     pub async fn bootstrap(
         &self,
         // qp2p_config: QuicP2pConfig,
-        bootstrap_config: &Vec<SocketAddr>,
+        bootstrap_config: &[SocketAddr],
     ) -> Result<ReplicaPublicKeySet, Error> {
         trace!(
             "Trying to bootstrap to the network with public_key: {:?}",
@@ -134,7 +132,7 @@ impl ConnectionManager {
 
         let mut receiver = self.keyset_receiver.lock().await;
 
-        let handle = self.listen_to_incoming_messages(incoming_messages).await;
+        let _handle = self.listen_to_incoming_messages(incoming_messages).await;
 
         // wait on our section PK set to be received before progressing
         if let Some(res) = receiver.next().await {
@@ -509,7 +507,7 @@ impl ConnectionManager {
     // nodes we should establish connections with
     async fn get_section(
         &self,
-        bootstrap_nodes_override: &Vec<SocketAddr>,
+        bootstrap_nodes_override: &[SocketAddr],
     ) -> Result<IncomingMessages, Error> {
         info!("Sending NetworkInfo::GetSectionRequest");
 
@@ -521,7 +519,10 @@ impl ConnectionManager {
             incoming_messages,
             _disconnections,
             bootstrapped_peer,
-        ) = self.qp2p.bootstrap(bootstrap_nodes_override).await?;
+        ) = self
+            .qp2p
+            .bootstrap(&bootstrap_nodes_override.to_vec())
+            .await?;
 
         // 1. We query the network for section info.
         trace!("Sending handshake request to bootstrapped node...");
@@ -551,7 +552,12 @@ impl ConnectionManager {
         // We spawn a task per each node to connect to
         let mut tasks = Vec::default();
 
-        let endpoint = self.endpoint.clone().ok_or(Error::NotBootstrapped)?;
+        let endpoint = self
+            .endpoint
+            .lock()
+            .await
+            .clone()
+            .ok_or(Error::NotBootstrapped)?;
         let socketaddr_sig = self
             .keypair
             .sign(&serialize(&endpoint.borrow().socket_addr())?);
@@ -702,8 +708,7 @@ impl ConnectionManager {
             )) => {
                 trace!("GetSectionResponse::Redirect, trying with provided elders");
                 // Continually try and bootstrap against new elders while we're getting rediret
-                self.get_section(&addresses).await?;
-                
+                let _ = self.get_section(&addresses).await?;
                 Ok(())
             }
             NetworkInfoMsg::GetSectionResponse(GetSectionResponse::Success(infra_info)) => {
@@ -720,7 +725,6 @@ impl ConnectionManager {
                 }
                 let error = update.error;
                 self.handle_infrastructure_info_update(error).await
-                
             }
             _ => {
                 error!("Another infrastructure message type came in {:?}", msg);
@@ -771,7 +775,7 @@ impl ConnectionManager {
         // clear existing elder lsit.
         let mut elders = self.elders.lock().await;
         for elder in elders.clone().into_iter() {
-            elders.remove(&elder);
+            let _ = elders.remove(&elder);
         }
         self.connect_to_elders(elders_addrs).await
     }

@@ -7,7 +7,6 @@ use sn_data_types::{
 use sn_messaging::client::{
     Cmd, DataCmd, Message, Query, QueryResponse, TransferCmd, TransferQuery,
 };
-use sn_messaging::MessageId;
 
 use sn_transfers::{ActorEvent, ReplicaValidator, TransferInitiated};
 use tokio::sync::mpsc::channel;
@@ -24,7 +23,6 @@ pub use sn_transfers::TransferActor as SafeTransferActor;
 
 use crate::client::Client;
 use crate::errors::Error;
-use xor_name::XorName;
 /// Simple client side validations
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientTransferValidator {}
