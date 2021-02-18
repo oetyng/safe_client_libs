@@ -53,7 +53,6 @@ type TransferValidationSender = Sender<Result<TransferValidated, Error>>;
 type QueryResponseSender = Sender<Result<QueryResponse, Error>>;
 
 type ElderConnectionMap = HashSet<SocketAddr>;
-type KeySetSender = Sender<Result<ReplicaPublicKeySet, Error>>;
 /// Initialises `QuicP2p` instance which can bootstrap to the network, establish
 /// connections and send messages to several nodes, as well as await responses from them.
 #[derive(Clone)]
@@ -69,22 +68,15 @@ pub struct ConnectionManager {
     // receive the pk set when calling bootstrap func
     keyset_sender: Arc<Mutex<Sender<Result<ReplicaPublicKeySet, Error>>>>,
     keyset_receiver: Arc<Mutex<Receiver<Result<ReplicaPublicKeySet, Error>>>>,
-    // network_listener: Arc<Mutex<JoinHandle<Result<(), Error>>>>
-    // keyset_channel: Arc<Mutex<Option<KeySetSender>>>
-    // keyset_channel: <Arc<Mutex<Option<Sender<Result<ReplicaPublicKeySet, Error>>>>>,
-    // config_file_path: Option<&'static Path>,
 }
 
 impl ConnectionManager {
     /// Create a new connection manager.
     pub async fn new(
         config: QuicP2pConfig,
-        // config_file_path: Option<&'static Path>,
-        // bootstrap_config: Option<HashSet<SocketAddr>>,
         keypair: Keypair,
         notification_sender: UnboundedSender<Error>,
     ) -> Result<Self, Error> {
-        // let mut config = Config::new(config_file_path, bootstrap_config).qp2p;
 
         let qp2p = QuicP2p::with_config(Some(config), Default::default(), false)?;
         let (sender, receiver) = channel::<Result<ReplicaPublicKeySet, Error>>(1);
@@ -112,7 +104,6 @@ impl ConnectionManager {
             let res = self.clone().bootstrap(bootstrap_config).await;
             match res {
                 Ok(pk_set) => {
-                    // debug!(">>>>> bootstra done... endpoint is some?{:?}", self.endpoint.is_some());
                     return Ok((self, pk_set))
                 },
                 Err(err) => {
@@ -145,22 +136,9 @@ impl ConnectionManager {
         
         
         let mut receiver = self.keyset_receiver.lock().await;
-        // let (_, receiver) = channel;
-        // keyset_sender = Some(sender);
 
-            {
-
-                debug!("11111 endpoint is: {:?}", self.endpoint.lock().await.is_some());
-            }
         let handle = self.listen_to_incoming_messages(incoming_messages).await;
 
-        // debug!("2222 endpoint is: {:?}", self.endpoint.lock().await.is_some());
-        {
-
-            debug!("22222 endpoint is: {:?}", self.endpoint.lock().await.is_some());
-        }
-
-        debug!("waitinggggggggggg");
         // wait on our section PK set to be received before progressing
         if let Some(res) = receiver.next().await {
             let pk_set = res?;
@@ -293,7 +271,6 @@ impl ConnectionManager {
         // and we try to find a majority on the responses
         let mut tasks = Vec::default();
         let elders = self.elders.lock().await;
-        // let endpoint = self.endpoint.lock().await.clone().ok_or(Error::NotBootstrapped)?;
         let elders_addrs: Vec<SocketAddr> = elders.iter().cloned().collect();
         for socket in elders_addrs {
             let msg_bytes_clone = msg_bytes.clone();
@@ -521,10 +498,6 @@ impl ConnectionManager {
 
         trace!("override nodes: {:?}", bootstrap_nodes_override);
 
-        // let qp2p = QuicP2p::with_config(Some(qp2p_config), Default::default(), false)?;
-        // overwrite our qp2p instance with out new bootstrapped one
-        // self.qp2p = qp2p;
-
         let (
             the_endpoint,
             _incoming_connections,
@@ -533,19 +506,18 @@ impl ConnectionManager {
             bootstrapped_peer,
         ) = self.qp2p.bootstrap(bootstrap_nodes_override).await?;
         
-        {
-            let mut endpoint = self.endpoint.lock().await;
-            *endpoint = Some(the_endpoint);
-        }
- 
-
+        
+        
         trace!("Sending handshake request to bootstrapped node...");
         let public_key = self.keypair.public_key();
         let xorname = XorName::from(public_key);
         let msg = NetworkInfoMsg::GetSectionQuery(xorname).serialize()?;
-
-        let endpoint = self.endpoint.lock().await.clone().ok_or(Error::NotBootstrapped)?;
-        endpoint.send_message(msg, &bootstrapped_peer).await?;
+        
+        // TODO: we shouldnt need to grab this again
+        the_endpoint.send_message(msg, &bootstrapped_peer).await?;
+        let mut endpoint = self.endpoint.lock().await;
+        *endpoint = Some(the_endpoint);
+        
         trace!("get section done");
         Ok(incoming_messages)
     }
@@ -713,11 +685,8 @@ impl ConnectionManager {
                 addresses,
             )) => {
                 trace!("GetSectionResponse::Redirect, trying with provided elders");
-                // let config = Config::new(self.config_file_path, Some(addresses.iter().cloned().collect())).qp2p;
-                
                 // Continually try and bootstrap against new elders while we're getting rediret
                 self.get_section(&addresses).await?;
-                // self.listen_to_incoming_messages(incoming).await;
                 
                 Ok(())
             }
@@ -785,16 +754,12 @@ impl ConnectionManager {
                 .send(Ok(pk_set))
                 .await
                 .map_err(|_| Error::CouldNotSaveReplicaPkSet)?;
-            // let's wipe that
-            // self.keyset_channel = None;
-        // }
 
         // clear existing elder lsit.
         let mut elders = self.elders.lock().await;
         for elder in elders.clone().into_iter() {
             elders.remove(&elder);
         }
-        // elders.remove;
         self.connect_to_elders(elders_addrs).await
     }
 
