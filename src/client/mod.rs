@@ -38,7 +38,7 @@ use crdts::Dot;
 use futures::lock::Mutex;
 use log::{debug, info, trace, warn};
 use rand::rngs::OsRng;
-use sn_data_types::{Keypair, PublicKey, ReplicaPublicKeySet, Token};
+use sn_data_types::{Keypair, PublicKey, Token};
 use sn_messaging::{
     client::{Cmd, DataCmd, Message, Query, QueryResponse},
     MessageId,

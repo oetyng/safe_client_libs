@@ -1,4 +1,4 @@
-// Copyright 2020 MaidSafe.net limited.
+// Copyright 2021 MaidSafe.net limited.
 //
 // This SAFE Network Software is licensed to you under The General Public License (GPL), version 3.
 // Unless required by applicable law or agreed to in writing, the SAFE Network Software distributed
@@ -9,14 +9,13 @@
 use crate::config_handler::Config;
 use crate::Error;
 use bincode::serialize;
-use bytes::Bytes;
 use futures::{
     future::{join_all, select_all},
     lock::Mutex,
 };
 use log::{debug, error, info, trace, warn};
 use qp2p::{self, Config as QuicP2pConfig, Endpoint, IncomingMessages, QuicP2p};
-use sn_data_types::{HandshakeRequest, Keypair, ReplicaPublicKeySet, TransferValidated};
+use sn_data_types::{Keypair, ReplicaPublicKeySet, TransferValidated};
 use sn_messaging::{
     client::{Event, Message, QueryResponse},
     network_info::{
@@ -28,6 +27,7 @@ use sn_messaging::{
 use futures::StreamExt;
 use std::iter::Iterator;
 use std::{
+    borrow::Borrow,
     collections::{HashMap, HashSet},
     net::SocketAddr,
     path::Path,
@@ -523,6 +523,7 @@ impl ConnectionManager {
             bootstrapped_peer,
         ) = self.qp2p.bootstrap(bootstrap_nodes_override).await?;
 
+        // 1. We query the network for section info.
         trace!("Sending handshake request to bootstrapped node...");
         let public_key = self.keypair.public_key();
         let xorname = XorName::from(public_key);
@@ -550,30 +551,27 @@ impl ConnectionManager {
         // We spawn a task per each node to connect to
         let mut tasks = Vec::default();
 
-        let endpoint = self
-            .endpoint
-            .lock()
-            .await
-            .clone()
-            .ok_or(Error::NotBootstrapped)?;
-        for peer_addr in elders_addrs {
-            let keypair = self.keypair.clone();
+        let endpoint = self.endpoint.clone().ok_or(Error::NotBootstrapped)?;
+        let socketaddr_sig = self
+            .keypair
+            .sign(&serialize(&endpoint.borrow().socket_addr())?);
+        let msg = NetworkInfoMsg::BootstrapCmd {
+            end_user: self.keypair.public_key(),
+            socketaddr_sig,
+        }
+        .serialize()?;
 
+        for peer_addr in elders_addrs {
             let endpoint = endpoint.clone();
+            let msg = msg.clone();
             let task_handle = tokio::spawn(async move {
                 let mut result = Err(Error::ElderConnection);
                 let mut connected = false;
                 let mut attempts: usize = 0;
                 while !connected && attempts <= NUMBER_OF_RETRIES {
-                    let public_key = keypair.public_key();
                     attempts += 1;
                     endpoint.connect_to(&peer_addr).await?;
-
-                    let handshake = HandshakeRequest::Join(public_key);
-                    let msg = Bytes::from(serialize(&handshake)?);
-
-                    endpoint.send_message(msg, &peer_addr).await?;
-
+                    endpoint.send_message(msg.clone(), &peer_addr).await?;
                     connected = true;
 
                     debug!(
