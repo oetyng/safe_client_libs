@@ -77,7 +77,9 @@ impl ConnectionManager {
         session: Session,
         incoming_messages: &mut IncomingMessages,
     ) -> Result<Session, Error> {
+        trace!("getting elders..");
         if let Some((_src, message)) = incoming_messages.next().await {
+            trace!("got response when getting elders");
             match SectionInfoMsg::from(message) {
                 Ok(msg) => ConnectionManager::handle_sectioninfo_msg(msg, session).await,
                 Err(e) => Err(e.into()),
@@ -344,6 +346,9 @@ impl ConnectionManager {
                     &mut has_elected_a_response,
                 );
                 has_elected_a_response = true;
+                trace!("LOOOOG: 5");
+            } else {
+                trace!("LOOOOG: 6");
             }
         }
 
@@ -383,6 +388,7 @@ impl ConnectionManager {
             );
 
             if most_popular_response.0 == None {
+                trace!("LOOOOG: 0");
                 most_popular_response = (Some(message.clone()), *votes);
             }
 
@@ -391,13 +397,17 @@ impl ConnectionManager {
 
                 most_popular_response = (Some(message.clone()), *votes)
             } else {
+                trace!("LOOOOG: 1");
                 // TODO: check w/ farming we get a proper history returned w /matching responses.
                 if let QueryResponse::GetHistory(Ok(history)) = &message {
+                    trace!("LOOOOG: 2");
                     // if we're not more popular but in simu payout mode, check if we have more history...
                     if cfg!(feature = "simulated-payouts") && votes == &most_popular_response.1 {
+                        trace!("LOOOOG: 3");
                         if let Some(QueryResponse::GetHistory(Ok(popular_history))) =
                             &most_popular_response.0
                         {
+                            trace!("LOOOOG: 4");
                             if history.len() > popular_history.len() {
                                 trace!("GetHistory response received in Simulated Payouts... choosing longest history. {:?}", history);
                                 most_popular_response = (Some(message.clone()), *votes)
